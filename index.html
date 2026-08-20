@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#07141f" />
+    <title>StackPilot 堆智检 · 燃料电池测试可信分析 Agent</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"><span></span><span></span><span></span></div>
+          <div>
+            <strong>StackPilot</strong>
+            <small>堆智检</small>
+          </div>
+        </div>
+        <nav class="nav-list" aria-label="主导航">
+          <button class="nav-item active" data-view="overview"><i>⌂</i><span>分析总览</span></button>
+          <button class="nav-item" data-view="quality"><i>◇</i><span>数据质量</span><b id="qualityBadge">0</b></button>
+          <button class="nav-item" data-view="platforms"><i>≋</i><span>电流平台</span></button>
+          <button class="nav-item" data-view="cells"><i>▦</i><span>单片一致性</span></button>
+          <button class="nav-item" data-view="report"><i>⇩</i><span>报告中心</span></button>
+        </nav>
+        <div class="sidebar-note">
+          <div class="privacy-dot"></div>
+          <div><strong>隐私优先</strong><small>数据仅在本机内存处理</small></div>
+        </div>
+        <div class="sidebar-footer">IGNITE 2026 · T02-03</div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">燃料电池电堆测试 · 可信分析工作台</div>
+            <h1 id="pageTitle">分析总览</h1>
+          </div>
+          <div class="top-actions">
+            <span class="engine-status"><i></i>确定性计算引擎在线</span>
+            <button class="button ghost" id="configButton">参数配置</button>
+            <button class="button primary" id="exportTopButton">导出 XLSX</button>
+          </div>
+        </header>
+
+        <section class="workspace">
+          <div class="view active" id="view-overview">
+            <section class="upload-strip" id="dropZone">
+              <div class="upload-copy">
+                <div class="upload-icon">↑</div>
+                <div>
+                  <strong id="datasetName">青川科技官方样例数据</strong>
+                  <span id="datasetMeta">已加载真实数据分析结果 · 可拖入 CSV 替换</span>
+                </div>
+              </div>
+              <div class="upload-actions">
+                <input type="file" id="fileInput" accept=".csv,text/csv" hidden />
+                <button class="button ghost" id="loadDemoButton">恢复官方样例</button>
+                <button class="button secondary" id="chooseFileButton">选择 CSV</button>
+              </div>
+              <div class="progress-track" id="progressTrack"><span id="progressBar"></span></div>
+            </section>
+
+            <section class="trust-banner" id="trustBanner">
+              <div class="trust-score"><span id="trustScore">--</span><small>可信度</small></div>
+              <div>
+                <strong id="trustHeadline">正在加载样例分析…</strong>
+                <p id="trustDescription">计算结论将附带数据区间、参数与质量告警。</p>
+              </div>
+              <span class="pill neutral" id="analysisMode">严格模式</span>
+            </section>
+
+            <section class="kpi-grid">
+              <article class="kpi-card"><div class="kpi-label">有效记录</div><div class="kpi-value" id="rowCount">--</div><div class="kpi-foot">行时序数据</div></article>
+              <article class="kpi-card"><div class="kpi-label">字段规模</div><div class="kpi-value" id="columnCount">--</div><div class="kpi-foot">个原始信号</div></article>
+              <article class="kpi-card accent"><div class="kpi-label">稳定平台</div><div class="kpi-value" id="platformCount">--</div><div class="kpi-foot">个可复核区间</div></article>
+              <article class="kpi-card warning"><div class="kpi-label">质量告警</div><div class="kpi-value" id="issueCount">--</div><div class="kpi-foot">项需关注问题</div></article>
+            </section>
+
+            <section class="dashboard-grid">
+              <article class="panel chart-panel span-2">
+                <div class="panel-head">
+                  <div><span class="section-kicker">PERFORMANCE</span><h2>极化性能概览</h2></div>
+                  <div class="chart-legend"><span><i class="dot cyan"></i>平均单片电压</span><span><i class="dot lime"></i>有效测试点</span></div>
+                </div>
+                <div class="chart-wrap"><svg id="polarizationChart" viewBox="0 0 900 330" role="img" aria-label="极化性能曲线"></svg></div>
+                <div class="chart-caption" id="polarizationCaption">等待分析结果</div>
+              </article>
+
+              <article class="panel insight-panel">
+                <div class="panel-head"><div><span class="section-kicker">AGENT INSIGHT</span><h2>可信结论</h2></div><span class="ai-chip">AI + 规则</span></div>
+                <div id="insightList" class="insight-list"></div>
+              </article>
+
+              <article class="panel span-2">
+                <div class="panel-head"><div><span class="section-kicker">STABLE WINDOWS</span><h2>稳定区间</h2></div><button class="text-button" data-goto="platforms">查看全部 →</button></div>
+                <div class="table-wrap compact"><table><thead><tr><th>平台</th><th>样本数</th><th>实测电流</th><th>平均单片电压</th><th>平均极差</th><th>结论</th></tr></thead><tbody id="overviewPlatformRows"></tbody></table></div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-head"><div><span class="section-kicker">CELL CONSISTENCY</span><h2>单片一致性</h2></div></div>
+                <div class="cell-mini" id="cellMiniChart"></div>
+                <div class="cell-summary" id="cellSummary">等待分析结果</div>
+              </article>
+            </section>
+          </div>
+
+          <div class="view" id="view-quality">
+            <section class="section-intro"><div><span class="section-kicker">QUALITY GATE</span><h2>分析前质量闸门</h2><p>问题不会被静默删除；每一项都记录影响、证据和处理建议。</p></div><span class="pill" id="qualityGateStatus">检查中</span></section>
+            <section class="quality-grid" id="qualityCards"></section>
+            <article class="panel">
+              <div class="panel-head"><div><h2>字段完整性</h2><p>按非空率排序，识别动态通道与缺失信号</p></div></div>
+              <div class="field-bars" id="fieldBars"></div>
+            </article>
+          </div>
+
+          <div class="view" id="view-platforms">
+            <section class="section-intro"><div><span class="section-kicker">PLATFORM DETECTION</span><h2>电流平台与稳定区间</h2><p>默认按实测电流落在目标电流 ±1A 且连续不少于 60 个样本识别。</p></div><span class="pill neutral" id="platformRulePill">±1A · ≥60样本</span></section>
+            <article class="panel"><div class="table-wrap"><table><thead><tr><th>#</th><th>目标电流</th><th>样本数</th><th>统计窗口</th><th>实测均值</th><th>平均单片电压</th><th>最低单片</th><th>电压极差</th><th>状态</th></tr></thead><tbody id="allPlatformRows"></tbody></table></div></article>
+          </div>
+
+          <div class="view" id="view-cells">
+            <section class="section-intro"><div><span class="section-kicker">CELL CONSISTENCY</span><h2>单片电压一致性</h2><p>动态识别 8/9 片通道，避免把缺失通道误判为低电压。</p></div><span class="pill neutral" id="cellChannelPill">--</span></section>
+            <article class="panel"><div class="panel-head"><div><h2>通道均值与离散度</h2><p>仅统计目标电流大于 0 的加载工况</p></div></div><div class="cell-large" id="cellLargeChart"></div></article>
+            <section class="dashboard-grid two"><article class="panel"><h2>通道异常</h2><div id="cellAnomalies" class="anomaly-list"></div></article><article class="panel"><h2>解释原则</h2><div class="principle-list"><p><b>01</b> 片数变化时仅比较当行存在的通道。</p><p><b>02</b> 阈值未配置时只排序，不强行给出故障结论。</p><p><b>03</b> 每个异常均保留平台与样本证据。</p></div></article></section>
+          </div>
+
+          <div class="view" id="view-report">
+            <section class="report-hero">
+              <span class="section-kicker">TRACEABLE REPORT</span><h2>生成可复核的分析报告</h2><p>数值来自确定性计算引擎；所有参数、警告和处理日志随报告一并导出。</p>
+              <div class="report-actions"><button class="button primary large" id="exportXlsxButton">导出 XLSX 报告</button><button class="button secondary large" id="exportJsonButton">导出分析 JSON</button></div>
+            </section>
+            <section class="report-sheets" id="reportSheets"></section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="configModal" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="configTitle">
+        <div class="modal-head"><div><span class="section-kicker">ANALYSIS CONTRACT</span><h2 id="configTitle">本次分析参数</h2></div><button class="icon-button" id="closeConfigButton">×</button></div>
+        <div class="config-grid">
+          <label>电流允许偏差（A）<input id="currentTolerance" type="number" min="0.1" step="0.1" value="1" /></label>
+          <label>平台最短持续样本<input id="minSamples" type="number" min="10" step="10" value="60" /></label>
+          <label>默认统计窗口<input id="windowSamples" type="number" min="10" step="10" value="120" /></label>
+          <label>推定采样周期（秒）<input id="sampleInterval" type="number" min="0.1" step="0.1" value="1" /></label>
+        </div>
+        <div class="config-note">时间戳精度不足时，系统使用“样本数 × 配置采样周期”估算持续时间，并在报告中显著标记。</div>
+        <div class="modal-actions"><button class="button ghost" id="resetConfigButton">恢复默认</button><button class="button primary" id="applyConfigButton">应用并重新分析</button></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script src="./xlsx-export.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
