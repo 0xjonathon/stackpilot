@@ -2,6 +2,8 @@
 
 燃料电池电堆测试数据的本地可信分析与 XLSX 报告工具，面向浦发·IGNITE 未来能源黑客松 T02-03。
 
+在线体验：[https://stackpilot-xi.vercel.app](https://stackpilot-xi.vercel.app)
+
 ## 运行
 
 使用 Python 3 启动静态服务器：
