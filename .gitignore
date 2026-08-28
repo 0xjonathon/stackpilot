@@ -2,3 +2,10 @@
 __pycache__/
 *.pyc
 .vercel
+
+# Raw enterprise datasets & documents
+*.csv
+*.pdf
+*.docx
+*.xlsx
+*企业资料*

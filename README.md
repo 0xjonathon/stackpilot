@@ -1,47 +1,58 @@
-# StackPilot 堆智检 MVP
+# StackPilot 堆智检
 
-燃料电池电堆测试数据的本地可信分析与 XLSX 报告工具，面向浦发·IGNITE 未来能源黑客松 T02-03。
+燃料电池电堆测试数据分析与标准化报告平台，面向浦发·IGNITE 未来能源黑客松 T02-03 企业命题。
 
-在线体验：[https://stackpilot-xi.vercel.app](https://stackpilot-xi.vercel.app)
+在线系统：[https://stackpilot-xi.vercel.app](https://stackpilot-xi.vercel.app)
 
-## 运行
+## 产品能力
 
-使用 Python 3 启动静态服务器：
+- 读取测试台 CSV 时序数据并在浏览器本机完成解析，原始记录不上传。
+- 将测试台原始表头统一映射到企业标准字段，并记录单位与换算关系。
+- 按电流允许偏差和最短持续时间识别电流平台，重复电流点独立保留。
+- 生成极化性能、阳极/阴极/冷却回路实际工况、流阻和单片一致性统计。
+- 在输入资料不足时明确输出“未判定”，不补造目标工况或内阻数据。
+- 导出符合企业任务说明书结构的 14 工作表 XLSX 报告及审计 JSON。
+
+## 基准批次
+
+系统默认读取 `reference-analysis.json`。该文件由企业资料包中的原始 CSV 生成，只包含派生统计和追溯元数据，不包含原始时序行。
+
+当前基准批次：
+
+- 批次编号：`QC-FC-20260623-01`
+- 原始记录：38,257 行、127 列
+- 数据时间：2026-06-23 14:30 至 2026-06-24 17:29
+- 标准字段：39 项直接映射、4 项派生、1 项明确缺失
+- 平台结果：41 个独立电流平台、20 个代表电流档位
+
+上述值均由构建脚本从资料包计算，不在界面代码中固定。
+
+## 本地运行
 
 ```bash
 python3 serve.py
 ```
 
-打开 `http://127.0.0.1:4173`。
+访问 `http://127.0.0.1:4173`。应用运行只依赖 Python 标准库；CSV 解析、规则计算和 XLSX 生成在浏览器中完成。
 
-应用运行仅需 Python 3 的标准库；CSV 解析、分析和 XLSX 生成全部在浏览器完成。
+## 重建基准分析
 
-## 演示路径
-
-1. 首页默认加载样例数据的派生分析结果。
-2. 查看数据质量闸门、极化曲线与稳定平台。
-3. 拖入 `sample示例.csv`，在浏览器本机重新计算。
-4. 在报告中心导出多工作表 XLSX 或完整分析 JSON。
-
-## 隐私与可信性
-
-- CSV 在浏览器 Web Worker 中解析，不上传到任何服务器。
-- 数值由确定性规则计算，未调用生成式模型。
-- 时间戳精度、动态单片数量、字段缺失与目标工况缺失均显式记录。
-- 阈值、统计窗口、原始行号和处理日志随报告导出。
-
-## 文件说明
-
-- `index.html`：应用结构
-- `styles.css`：响应式视觉系统
-- `app.js`：界面状态、交互和图表
-- `analyzer-worker.js`：本地 CSV 分析引擎
-- `xlsx-export.js`：无依赖 XLSX 导出器
-- `demo-analysis.json`：官方样例的派生统计，不含原始时序行
-- `tools/build_demo.py`：从本地官方样例重建派生统计
-
-重建演示数据需要 pandas/numpy，可传入 CSV 路径：
+构建脚本需要 pandas 和 numpy：
 
 ```bash
-python3 tools/build_demo.py "/absolute/path/to/sample.csv"
+python3 tools/build_reference_analysis.py "/absolute/path/to/02 样例数据-青川科技.csv"
 ```
+
+构建过程会重新计算批次时间范围、字段映射、平台、工况、单片统计和 SHA-256 校验值，并覆盖 `reference-analysis.json`。
+
+## 核心文件
+
+- `index.html`：产品信息架构和无障碍语义
+- `styles.css`：响应式视觉系统
+- `app.js`：批次状态、交互和可视化
+- `analyzer-worker.js`：本地 CSV 分析引擎
+- `xlsx-export.js`：浏览器端 XLSX 报告生成器
+- `reference-analysis.json`：企业原始数据的已校验派生分析快照
+- `tools/build_reference_analysis.py`：可复现的基准分析构建程序
+
+企业资料仅用于本次赛事的学习、开发、演示与评审。公开部署不包含原始时序数据。
