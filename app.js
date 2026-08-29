@@ -292,14 +292,29 @@ function renderInsights(insights) {
   $("insightList").innerHTML = insights.map((item) => `<div class="insight ${item.type === "warning" ? "warn" : ""}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.detail)}</span></div>`).join("");
 }
 
+function cleanDisplayAiText(text) {
+  if (!text) return "";
+  let s = String(text).trim();
+  s = s.replace(/^(?:思考过程|思维链|分析思路|Thought|Thinking Process)\s*[:：]\s*/i, "");
+  s = s.replace(/^(?:用户现在需要我|用户希望我|首先(?:我|得|先)|我需要先|根据(?:给定的|题目)|按照要求)[\s\S]*?(?=(?:总结|结论|【分析结论】|分析结果|1\.|一、|$))/i, (m) => m.length > 80 ? "" : m);
+  return s.trim();
+}
+
 function renderAgentResult(result) {
   $("agentStatus").textContent = "AI 已研判";
   $("agentStatus").className = "ai-chip ready";
-  $("agentSummary").textContent = result.summary || "智能研判已完成。";
-  $("insightList").innerHTML = (result.findings || []).map((item) => `<div class="insight agent-${escapeHtml(item.severity)}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.evidence)}</span><small>建议：${escapeHtml(item.recommendation)}</small></div>`).join("");
-  const limitations = (result.limitations || []).length ? `<small class="agent-limitations">边界：${escapeHtml(result.limitations.join("；"))}</small>` : "";
-  $("agentAnswer").innerHTML = `${result.answer ? `<strong>AI 回答</strong><p>${escapeHtml(result.answer)}</p>` : ""}${limitations}`;
-  $("agentAnswer").hidden = !result.answer && !limitations;
+  const summaryText = cleanDisplayAiText(result.summary) || "智能研判已完成。";
+  $("agentSummary").textContent = summaryText;
+  $("insightList").innerHTML = (result.findings || []).map((item) => {
+    const title = cleanDisplayAiText(item.title) || "分析要点";
+    const evidence = cleanDisplayAiText(item.evidence);
+    const rec = cleanDisplayAiText(item.recommendation);
+    return `<div class="insight agent-${escapeHtml(item.severity)}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(evidence)}</span>${rec ? `<small>建议：${escapeHtml(rec)}</small>` : ""}</div>`;
+  }).join("");
+  const limitations = (result.limitations || []).length ? `<small class="agent-limitations">边界：${escapeHtml(result.limitations.map(cleanDisplayAiText).filter(Boolean).join("；"))}</small>` : "";
+  const answerText = cleanDisplayAiText(result.answer);
+  $("agentAnswer").innerHTML = `${answerText ? `<strong>AI 回答</strong><p>${escapeHtml(answerText)}</p>` : ""}${limitations}`;
+  $("agentAnswer").hidden = !answerText && !limitations;
 }
 
 function compactRange(items, key, digits = 2) {
@@ -308,44 +323,102 @@ function compactRange(items, key, digits = 2) {
   return { min: +Math.min(...values).toFixed(digits), max: +Math.max(...values).toFixed(digits) };
 }
 
-function buildAgentContext() {
+function buildAgentContext(targetId = "") {
   const r = state.result;
+  if (!r) return {};
+
+  const baseInfo = {
+    datasetId: r.dataset?.id,
+    datasetName: r.dataset?.name,
+    totalRows: r.meta?.rowCount,
+    timeRange: `${r.meta?.timeMin || "—"} 至 ${r.meta?.timeMax || "—"}`,
+  };
+
+  // 1. 数据质量与字段映射专属上下文
+  if (targetId === "qualityAiResult") {
+    return {
+      scope: "数据质量与字段映射",
+      dataset: baseInfo,
+      qualityGate: r.qualityGate,
+      issues: (r.issues || []).map(({ severity, category, title, detail, evidence, action }) => ({ severity, category, title, detail, evidence, action })),
+      fieldMappingSummary: r.meta?.fieldMapping,
+      missingFields: (r.fieldMappings || []).filter((m) => m.status === "缺失").map((m) => m.standardField),
+      fieldStatusList: (r.fieldMappings || []).map((m) => ({ field: m.standardField, source: m.sourceField, status: m.status, completeness: m.completeness })),
+    };
+  }
+
+  // 2. 电流平台与极化曲线专属上下文
+  if (targetId === "platformAiResult") {
+    return {
+      scope: "电流平台与极化曲线",
+      dataset: baseInfo,
+      qualitySummary: r.qualityGate?.status,
+      platforms: (r.platforms || []).map((p) => ({
+        id: p.id, label: p.label, targetCurrentA: p.targetCurrent, actualCurrentA: p.actualCurrent,
+        samples: p.sampleCount, durationSeconds: p.durationSeconds ?? p.sampleCount,
+        avgCellV: p.avgCellVoltage, minCellV: p.minCellVoltage, rangeMv: p.cellRange,
+        status: p.status, stability: p.stabilityStatus, compliance: p.complianceStatus
+      })),
+      polarizationPoints: (r.polarization || []).map((p) => ({ currentA: p.targetCurrent ?? p.current, avgCellV: p.avgCellVoltage ?? p.y, status: p.status })),
+    };
+  }
+
+  // 3. 实际工况矩阵专属上下文
+  if (targetId === "conditionAiResult") {
+    return {
+      scope: "实际工况矩阵",
+      dataset: baseInfo,
+      operatingRanges: {
+        h2PressureKpa: compactRange(r.conditions || [], "h2Pressure", 1),
+        airPressureKpa: compactRange(r.conditions || [], "airPressure", 1),
+        coolantInTemperatureC: compactRange(r.conditions || [], "coolantInTemperature", 1),
+        coolantFlowLpm: compactRange(r.conditions || [], "coolantFlow", 1)
+      },
+      platformConditions: (r.conditions || []).map((c) => ({
+        platform: c.label || c.platformId, actualCurrentA: c.actualCurrent,
+        h2FlowSlpm: c.h2Flow, h2PressureKpa: c.h2Pressure, h2TemperatureC: c.h2Temperature,
+        airFlowSlpm: c.airFlow, airPressureKpa: c.airPressure, airTemperatureC: c.airTemperature,
+        coolantFlowLpm: c.coolantFlow, coolantInTemperatureC: c.coolantInTemperature,
+        coolantDeltaTC: c.coolantDeltaTemperature,
+        anodeResistance: c.h2Resistance, cathodeResistance: c.airResistance, coolantResistance: c.coolantResistance
+      })),
+    };
+  }
+
+  // 4. 单片一致性专属上下文
+  if (targetId === "cellAiResult") {
+    return {
+      scope: "单片电压一致性",
+      dataset: baseInfo,
+      lowestCells: [...(r.cells || [])].sort((a, b) => a.deviation - b.deviation).slice(0, 15).map(({ channel, mean, min, max, deviation, completeness, rank }) => ({
+        channel, meanVoltageV: mean, minVoltageV: min, maxVoltageV: max, deviationMv: deviation, completenessPercent: completeness, rank
+      })),
+      pieceCountConfig: (r.issues || []).filter((i) => i.category === "结构校核").map((i) => i.detail),
+    };
+  }
+
+  // 5. 全局总览与管理报告摘要
   const platforms = (r.platforms || []).map((p) => ({
     id: p.id, label: p.label, targetCurrentA: p.targetCurrent, actualCurrentA: p.actualCurrent,
     samples: p.sampleCount, avgCellV: p.avgCellVoltage, minCellV: p.minCellVoltage,
     rangeMv: p.cellRange, status: p.status, stability: p.stabilityStatus, compliance: p.complianceStatus
   }));
+
   return {
-    contract: {
-      deterministicEngineOwnsCalculations: true,
-      agentMayInterpretOnly: true,
-      rawRowsIncluded: false,
-      knowledgeTemplate: r.config?.knowledgeTemplate || state.config.knowledgeTemplate || "enterprise-t02"
-    },
-    dataset: {
-      id: r.dataset?.id, name: r.dataset?.name, rows: r.meta?.rowCount, columns: r.meta?.columnCount,
-      timeMin: r.meta?.timeMin, timeMax: r.meta?.timeMax, sha256Prefix: r.source?.sha256?.slice(0, 16)
-    },
+    scope: targetId === "reportAiResult" ? "管理层汇报摘要" : "全批次综合研判",
+    contract: { deterministicEngineOwnsCalculations: true, agentMayInterpretOnly: true },
+    dataset: baseInfo,
     qualityGate: r.qualityGate,
-    issues: (r.issues || []).map(({ severity, category, title, detail, evidence, action }) => ({ severity, category, title, detail, evidence, action })),
-    fieldMapping: r.meta?.fieldMapping,
+    issues: (r.issues || []).slice(0, 8).map(({ severity, category, title, detail, evidence, action }) => ({ severity, category, title, detail, evidence, action })),
     missingFields: (r.fieldMappings || []).filter((m) => m.status === "缺失").map((m) => m.standardField),
-    platforms,
-    polarization: r.polarization || [],
-    conditions: (r.conditions || []).map((c) => ({
-      platform: c.label || c.platformId, actualCurrentA: c.actualCurrent,
-      h2FlowSlpm: c.h2Flow, h2PressureKpa: c.h2Pressure, h2TemperatureC: c.h2Temperature, h2DewpointC: c.h2Dewpoint,
-      airFlowSlpm: c.airFlow, airPressureKpa: c.airPressure, airTemperatureC: c.airTemperature, airDewpointC: c.airDewpoint,
-      coolantFlowLpm: c.coolantFlow, coolantInTemperatureC: c.coolantInTemperature,
-      coolantDeltaTemperatureC: c.coolantDeltaTemperature, h2ResistanceKpa: c.h2Resistance,
-      airResistanceKpa: c.airResistance, coolantResistanceKpa: c.coolantResistance
-    })),
-    cells: [...(r.cells || [])].sort((a, b) => a.deviation - b.deviation).slice(0, 20).map(({ channel, mean, min, max, deviation, completeness, rank }) => ({ channel, mean, min, max, deviation, completeness, rank })),
-    operatingConditionRanges: {
+    platformsCount: platforms.length,
+    formalPlatformsCount: platforms.filter((p) => p.status === "正式点").length,
+    platformsSample: platforms.slice(0, 10),
+    topLowestCells: [...(r.cells || [])].sort((a, b) => a.deviation - b.deviation).slice(0, 8).map(({ channel, mean, deviation }) => ({ channel, mean, deviation })),
+    operatingRanges: {
       h2PressureKpa: compactRange(r.conditions || [], "h2Pressure", 1),
       airPressureKpa: compactRange(r.conditions || [], "airPressure", 1),
       coolantInTemperatureC: compactRange(r.conditions || [], "coolantInTemperature", 1),
-      coolantFlowLpm: compactRange(r.conditions || [], "coolantFlow", 1)
     }
   };
 }
@@ -373,9 +446,16 @@ async function checkAgentStatus() {
 function renderScopedAgentResult(targetId, result) {
   const panel = $(targetId);
   if (!panel) return;
-  const findings = (result.findings || []).map((item) => `<div class="insight agent-${escapeHtml(item.severity)}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.evidence)}</span><small>${escapeHtml(item.recommendation)}</small></div>`).join("");
-  const limitations = (result.limitations || []).length ? `<div class="section-ai-limit">分析边界：${escapeHtml(result.limitations.join("；"))}</div>` : "";
-  panel.innerHTML = `<div class="panel-head"><div><span class="section-kicker">AI INSIGHT</span><h2>${escapeHtml(result.summary || "AI 分析结果")}</h2></div><span class="ai-chip ready">${escapeHtml(result.meta?.model || "已完成")}</span></div><div class="section-ai-findings">${findings}</div>${result.answer ? `<p class="section-ai-answer">${escapeHtml(result.answer)}</p>` : ""}${limitations}`;
+  const summary = cleanDisplayAiText(result.summary) || "AI 分析研判已完成";
+  const findings = (result.findings || []).map((item) => {
+    const title = cleanDisplayAiText(item.title) || "分析发现";
+    const evidence = cleanDisplayAiText(item.evidence);
+    const rec = cleanDisplayAiText(item.recommendation);
+    return `<div class="insight agent-${escapeHtml(item.severity)}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(evidence)}</span>${rec ? `<small>建议：${escapeHtml(rec)}</small>` : ""}</div>`;
+  }).join("");
+  const limitations = (result.limitations || []).length ? `<div class="section-ai-limit">分析边界：${escapeHtml(result.limitations.map(cleanDisplayAiText).filter(Boolean).join("；"))}</div>` : "";
+  const answer = cleanDisplayAiText(result.answer);
+  panel.innerHTML = `<div class="panel-head"><div><span class="section-kicker">AI INSIGHT</span><h2>${escapeHtml(summary)}</h2></div><span class="ai-chip ready">${escapeHtml(result.meta?.model || "已完成")}</span></div><div class="section-ai-findings">${findings}</div>${answer ? `<p class="section-ai-answer">${escapeHtml(answer)}</p>` : ""}${limitations}`;
   panel.hidden = false;
 }
 
@@ -396,10 +476,16 @@ async function runAgent(question = "", silent = false, targetId = "") {
     target.innerHTML = '<div class="ai-loading"><i></i><span>正在分析当前数据…</span></div>';
   }
   try {
+    const contextData = buildAgentContext(targetId);
     const response = await fetch("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, context: buildAgentContext(), llmConfig: state.llmConfig.apiKey ? state.llmConfig : undefined })
+      body: JSON.stringify({
+        question,
+        scope: contextData.scope || "电堆测试分析",
+        context: contextData,
+        llmConfig: state.llmConfig.apiKey ? state.llmConfig : undefined
+      })
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "AI 服务调用失败");
