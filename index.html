@@ -32,7 +32,7 @@
           <div><div class="eyebrow">燃料电池电堆测试 · 数据分析与报告平台</div><h1 id="pageTitle">分析总览</h1></div>
           <div class="top-actions">
             <span class="engine-status"><i></i><span id="engineLabel">计算引擎就绪</span></span>
-            <button class="button ghost" id="aiConfigButton">AI 设置</button>
+            <button class="button ghost" id="aiConfigButton">模型配置</button>
             <button class="button ghost" id="mappingButton">字段映射</button>
             <button class="button ghost" id="configButton">分析参数</button>
             <button class="button primary" id="exportTopButton">导出正式报告</button>
@@ -51,6 +51,7 @@
               </div>
               <div class="upload-actions">
                 <input type="file" id="fileInput" accept=".csv,text/csv" hidden />
+                <button class="button ghost" id="resetDataButton">重置数据</button>
                 <button class="button ghost" id="loadReferenceButton">还原基准批次</button>
                 <button class="button secondary" id="chooseFileButton">导入测试数据</button>
               </div>
@@ -172,7 +173,7 @@
 
     <div class="modal-backdrop" id="aiConfigModal" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aiConfigTitle">
-        <div class="modal-head"><div><span class="section-kicker">AI CONNECTION</span><h2 id="aiConfigTitle">AI 接口设置</h2></div><button class="icon-button" id="closeAiConfigButton" aria-label="关闭">×</button></div>
+        <div class="modal-head"><div><span class="section-kicker">MODEL CONFIGURATION</span><h2 id="aiConfigTitle">模型配置</h2></div><button class="icon-button" id="closeAiConfigButton" aria-label="关闭">×</button></div>
         <div class="config-grid ai-config-grid">
           <label class="span-full">接口地址<input id="llmBaseUrl" type="url" autocomplete="url" placeholder="https://api.openai.com/v1" /></label>
           <label>模型<input id="llmModel" autocomplete="off" placeholder="gpt-5-mini" /></label>

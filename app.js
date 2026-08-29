@@ -196,9 +196,100 @@ async function analyzeFile(file) {
   }
 }
 
+function renderEmptyState() {
+  $("datasetName").textContent = "未导入测试数据";
+  $("sourceStatus").textContent = "待导入";
+  $("datasetMeta").textContent = "请导入 CSV 格式时序测试数据，或点击“还原基准批次”加载示例";
+  $("engineLabel").textContent = "计算引擎就绪";
+  $("rowCount").textContent = "--";
+  $("rowCountFoot").textContent = "有效时序行";
+  $("fieldMappingCount").textContent = "--";
+  $("fieldMappingFoot").textContent = "直接映射与派生";
+  $("platformCount").textContent = "--";
+  $("platformCountFoot").textContent = "重复点独立保留";
+  $("issueCount").textContent = "--";
+  $("issueCountFoot").textContent = "质量检查结果";
+  $("qualityBadge").textContent = "0";
+  $("trustScore").textContent = "--";
+  $("trustHeadline").textContent = "等待数据导入";
+  $("trustDescription").textContent = "导入 CSV 后将自动在浏览器本地执行数据质量体检与工程分析。";
+  $("analysisMode").textContent = "等待就绪";
+  $("datasetId").textContent = "—";
+  $("datasetRange").textContent = "—";
+  $("datasetHash").textContent = "—";
+  $("analysisVersion").textContent = "—";
+  $("platformRulePill").textContent = "—";
+  $("agentTemplate").textContent = state.llmConfig.apiKey ? state.llmConfig.model : (state.agentServerModel || "燃料电池电堆分析");
+
+  const svg = $("polarizationChart");
+  if (svg) {
+    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#8aa0a8" font-size="14">请导入 CSV 时序数据或加载基准批次</text>';
+  }
+  $("polarizationCaption").textContent = "等待数据导入后生成极化性能曲线";
+
+  $("agentStatus").textContent = state.agentAvailable ? "就绪" : "待配置";
+  $("agentSummary").textContent = "请先导入测试数据或加载基准批次以开展 AI 智能研判。";
+  $("insightList").innerHTML = "";
+  const agentAnswer = $("agentAnswer");
+  if (agentAnswer) {
+    agentAnswer.hidden = true;
+    agentAnswer.textContent = "";
+  }
+
+  $("overviewPlatformRows").innerHTML = '<tr><td colspan="7" style="text-align:center;color:#8aa0a8;padding:24px;">暂无数据</td></tr>';
+  $("allPlatformRows").innerHTML = '<tr><td colspan="12" style="text-align:center;color:#8aa0a8;padding:24px;">暂无平台数据</td></tr>';
+
+  $("qualityGateStatus").textContent = "未启动";
+  $("qualityGateStatus").className = "pill neutral";
+  $("qualityCards").innerHTML = '<div style="color:#8aa0a8;padding:16px;grid-column:1/-1;">请导入数据以执行质量体检闸门检查。</div>';
+  $("mappingSummary").textContent = "等待导入 CSV 文件";
+  $("mappingPill").textContent = "—";
+  $("mappingRows").innerHTML = '<tr><td colspan="7" style="text-align:center;color:#8aa0a8;padding:24px;">等待导入数据</td></tr>';
+  $("fieldBars").innerHTML = '<p style="color:#8aa0a8;">请先导入数据以查看字段完整性。</p>';
+
+  $("conditionKpis").innerHTML = "";
+  $("conditionRows").innerHTML = '<tr><td colspan="19" style="text-align:center;color:#8aa0a8;padding:24px;">暂无工况数据</td></tr>';
+
+  $("cellMiniChart").innerHTML = "";
+  $("cellLargeChart").innerHTML = "";
+  $("cellSummary").textContent = "等待分析结果";
+  $("cellChannelPill").textContent = "—";
+  $("cellPageDescription").textContent = "等待导入数据以汇总有效单片通道。";
+  $("cellAnomalies").innerHTML = '<div class="anomaly-item"><span>暂无单片通道数据</span></div>';
+
+  $("reportSheets").innerHTML = '<div style="color:#8aa0a8;padding:16px;grid-column:1/-1;">完成分析后可在此查看 14+ 工作表导出内容。</div>';
+  $("auditRows").innerHTML = '<tr><td colspan="4" style="text-align:center;color:#8aa0a8;padding:24px;">暂无处理日志</td></tr>';
+
+  ["qualityAiResult", "platformAiResult", "conditionAiResult", "cellAiResult", "reportAiResult"].forEach((id) => {
+    const el = $(id);
+    if (el) {
+      el.hidden = true;
+      el.innerHTML = "";
+    }
+  });
+}
+
+function resetData() {
+  if (state.worker) state.worker.terminate();
+  state.result = null;
+  state.lastFile = null;
+  state.sourceHeaders = [];
+  state.referenceMode = false;
+  state.agentResult = null;
+  state.agentResults = {};
+  const fileInput = $("fileInput");
+  if (fileInput) fileInput.value = "";
+  renderEmptyState();
+  setProgress(0, false);
+  toast("数据已重置");
+}
+
 function renderAll() {
   const r = state.result;
-  if (!r) return;
+  if (!r) {
+    renderEmptyState();
+    return;
+  }
   const mapping = r.meta?.fieldMapping || { direct: 0, derived: 0, missing: 0, total: r.meta?.columnCount || 0 };
   const quality = r.qualityGate || {
     status: r.issues?.some((i) => i.severity === "error") ? "阻断" : "有条件通过",
@@ -672,7 +763,7 @@ function saveAiConfig() {
   $("agentTemplate").textContent = config.model;
   closeModal("aiConfigModal");
   checkAgentStatus();
-  toast("AI 接口已启用");
+  toast("模型配置已保存并启用");
 }
 
 function clearAiConfig() {
@@ -681,7 +772,7 @@ function clearAiConfig() {
   $("llmApiKey").value = "";
   closeModal("aiConfigModal");
   checkAgentStatus();
-  toast("当前会话的 AI 配置已清除");
+  toast("当前会话的模型配置已清除");
 }
 
 function openMappingModal() {
@@ -694,8 +785,8 @@ function renderMappingEditor(forceAuto = false) {
   const editable = Boolean(state.lastFile && state.sourceHeaders.length);
   const mappings = forceAuto ? autoFieldMappings() : { ...autoFieldMappings(), ...(state.config.fieldMappings || {}) };
   const currentMappings = new Map((state.result?.fieldMappings || []).map((item) => [item.standardField, item.sourceField]));
-  $("mappingModalDescription").textContent = editable ? `${state.lastFile.name} · ${state.sourceHeaders.length} 个原始字段，可人工覆盖自动匹配。` : "当前为已校验基准批次；导入新的 CSV 后可使用下拉框覆盖自动映射。";
-  $("mappingModalStatus").textContent = editable ? `${Object.values(mappings).filter(Boolean).length}/${STANDARD_FIELDS.length} 已匹配` : "基准映射只读";
+  $("mappingModalDescription").textContent = editable ? `${state.lastFile.name} · ${state.sourceHeaders.length} 个原始字段，可人工覆盖自动匹配。` : (state.result ? "当前为已校验基准批次；导入新的 CSV 后可使用下拉框覆盖自动映射。" : "请导入 CSV 时序数据或加载基准批次以配置字段映射。");
+  $("mappingModalStatus").textContent = editable ? `${Object.values(mappings).filter(Boolean).length}/${STANDARD_FIELDS.length} 已匹配` : (state.result ? "基准映射只读" : "等待数据源");
   $("mappingEditorRows").innerHTML = STANDARD_FIELDS.map((field) => {
     const inferred = mappings[field.key] || "";
     if (!editable) {
@@ -724,6 +815,7 @@ document.querySelectorAll(".nav-item").forEach((button) => button.addEventListen
 document.querySelectorAll("[data-goto]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.goto)));
 $("chooseFileButton").addEventListener("click", () => $("fileInput").click());
 $("fileInput").addEventListener("change", (event) => analyzeFile(event.target.files[0]));
+$("resetDataButton").addEventListener("click", resetData);
 $("loadReferenceButton").addEventListener("click", () => { loadReference(); toast("正在还原已校验基准批次"); });
 $("mappingButton").addEventListener("click", openMappingModal);
 $("aiConfigButton").addEventListener("click", openAiConfigModal);
@@ -766,4 +858,5 @@ document.addEventListener("keydown", (event) => {
   ["configModal", "mappingModal", "aiConfigModal", "agentBoundaryModal"].forEach((id) => { if ($(id).classList.contains("open")) closeModal(id); });
 });
 
-loadReference();
+renderEmptyState();
+checkAgentStatus();
