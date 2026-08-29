@@ -1,39 +1,120 @@
-/* StackPilot local-only CSV analysis worker. No data leaves the browser. */
+/* StackPilot local-first CSV analysis worker. Raw rows never leave this worker. */
 
-self.onmessage = (event) => {
-  const { text, fileName, fileSize, sha256, config } = event.data;
+self.onmessage = async (event) => {
+  const { file, text, fileName, fileSize, sha256, config } = event.data;
   try {
-    const result = analyzeCsv(text, fileName, fileSize, sha256, config);
+    const result = await analyzeCsv(file || text, fileName, fileSize, sha256, config || {});
     self.postMessage({ type: "result", result });
   } catch (error) {
     self.postMessage({ type: "error", message: error?.message || String(error) });
   }
 };
 
-function parseCsv(text, onRow) {
+const CHUNK_SIZE = 1024 * 1024;
+
+function detectDelimiter(sample) {
+  const counts = new Map([[",", 0], ["\t", 0], [";", 0]]);
+  let quoted = false;
+  for (let i = 0; i < sample.length; i += 1) {
+    const ch = sample[i];
+    if (ch === '"') {
+      if (quoted && sample[i + 1] === '"') i += 1;
+      else quoted = !quoted;
+    } else if (!quoted && counts.has(ch)) counts.set(ch, counts.get(ch) + 1);
+    else if (!quoted && (ch === "\n" || ch === "\r")) break;
+  }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return ranked[0][1] ? ranked[0][0] : ",";
+}
+
+function createCsvParser(delimiter, onRow) {
   let row = [];
   let field = "";
   let quoted = false;
   let rowIndex = 0;
-  for (let i = 0; i <= text.length; i += 1) {
-    const ch = i < text.length ? text[i] : "\n";
-    if (quoted) {
-      if (ch === '"' && text[i + 1] === '"') { field += '"'; i += 1; }
-      else if (ch === '"') quoted = false;
-      else field += ch;
-      continue;
+  let pendingQuote = false;
+  let skipLf = false;
+  const emit = () => {
+    row.push(field);
+    field = "";
+    if (row.length > 1 || row[0] !== "") onRow(row, rowIndex++);
+    row = [];
+  };
+  return (chunk, final = false) => {
+    let i = 0;
+    if (pendingQuote) {
+      if (chunk[0] === '"') { field += '"'; i = 1; }
+      else quoted = false;
+      pendingQuote = false;
     }
-    if (ch === '"') quoted = true;
-    else if (ch === ",") { row.push(field); field = ""; }
-    else if (ch === "\n" || ch === "\r") {
-      if (ch === "\r" && text[i + 1] === "\n") i += 1;
-      row.push(field); field = "";
-      if (row.length > 1 || row[0] !== "") onRow(row, rowIndex++);
-      row = [];
-      if (rowIndex % 5000 === 0) self.postMessage({ type: "progress", value: Math.min(92, Math.round((i / text.length) * 92)) });
-    } else field += ch;
-  }
+    for (; i < chunk.length; i += 1) {
+      const ch = chunk[i];
+      if (skipLf) {
+        skipLf = false;
+        if (ch === "\n") continue;
+      }
+      if (quoted) {
+        if (ch === '"' && chunk[i + 1] === '"') { field += '"'; i += 1; }
+        else if (ch === '"' && i === chunk.length - 1 && !final) pendingQuote = true;
+        else if (ch === '"') quoted = false;
+        else field += ch;
+        continue;
+      }
+      if (ch === '"' && field === "") quoted = true;
+      else if (ch === delimiter) { row.push(field); field = ""; }
+      else if (ch === "\n" || ch === "\r") {
+        if (ch === "\r") skipLf = true;
+        emit();
+      } else field += ch;
+    }
+    if (final) {
+      if (pendingQuote) { quoted = false; pendingQuote = false; }
+      if (quoted) throw new Error("CSV 存在未闭合的引号字段，请检查文件编码或导出格式。");
+      if (field !== "" || row.length) emit();
+    }
+  };
 }
+
+async function parseCsv(source, onRow) {
+  if (typeof source === "string") {
+    const parser = createCsvParser(detectDelimiter(source.slice(0, 65536)), onRow);
+    parser(source, true);
+    return;
+  }
+  if (!source?.slice || !Number.isFinite(source.size)) throw new Error("无法读取 CSV 数据源");
+  const head = await source.slice(0, Math.min(source.size, 65536)).text();
+  const parser = createCsvParser(detectDelimiter(head), onRow);
+  const decoder = new TextDecoder("utf-8");
+  for (let offset = 0; offset < source.size; offset += CHUNK_SIZE) {
+    const buffer = await source.slice(offset, Math.min(offset + CHUNK_SIZE, source.size)).arrayBuffer();
+    parser(decoder.decode(buffer, { stream: true }), false);
+    self.postMessage({ type: "progress", value: Math.min(82, Math.round(((offset + buffer.byteLength) / Math.max(1, source.size)) * 82)) });
+  }
+  parser(decoder.decode(), true);
+}
+
+async function digestFile(source) {
+  if (!source?.arrayBuffer || !self.crypto?.subtle || source.size > 128 * 1024 * 1024) return null;
+  const digest = await self.crypto.subtle.digest("SHA-256", await source.arrayBuffer());
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+const FIELD_ALIASES = {
+  timestamp: ["测试时间", "Timestamp", "时间", "采集时间"],
+  target: ["电流设定值（A）", "电流设定值(A)", "目标电流", "FC_SysLoadCurr"],
+  actual: ["实际电流（A）", "实际电流(A)", "FC_CurrOut", "电堆电流"],
+  avgCell: ["平均电压（V）", "平均电压(V)", "FC_AvgCellVoltage", "平均单体电压"],
+  minCell: ["最小电压（V）", "最小电压(V)", "FC_MinCellVoltage", "最小单体电压"],
+  range: ["极差（mV）", "极差(mV)", "FC_AvgCellVoltDev", "离均差"],
+  pieceCount: ["片数", "单片数量", "电堆片数"]
+};
+
+const SIGNAL_FIELDS = {
+  currentDensity: "电流密度（mA/cm2）", stackVoltage: "总电压（V）", power: "功率（kW)", maxCell: "最大电压（V）", cellStd: "标准差（mV）",
+  h2Flow: "阳极流量（SLPM）", h2Pressure: "阳极入堆压力（kPa）", h2OutPressure: "阳极出堆压力（kPa）", h2Temperature: "阳极入堆温度（℃）", h2Dewpoint: "阳极增湿罐水温度（℃）",
+  airFlow: "阴极流量（SLPM）", airPressure: "阴极入堆压力（kPa）", airOutPressure: "阴极出堆压力（kPa）", airTemperature: "阴极入堆温度（℃）", airDewpoint: "阴极增湿罐水温度（℃）",
+  coolantFlow: "循环水流量（L/min）", coolantPressure: "循环水入堆压力（kPa）", coolantOutPressure: "循环水出堆压力（kPa）", coolantInTemperature: "循环水入堆温度（℃）", coolantOutTemperature: "循环水出堆温度（℃）"
+};
 
 const toNumber = (value) => {
   if (value == null || value.trim?.() === "") return NaN;
@@ -41,7 +122,7 @@ const toNumber = (value) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-function analyzeCsv(text, fileName, fileSize, sha256, config) {
+async function analyzeCsv(source, fileName, fileSize, sha256, config) {
   let headers = [];
   let idx = {};
   let rowCount = 0;
@@ -53,32 +134,23 @@ function analyzeCsv(text, fileName, fileSize, sha256, config) {
   const pieceCounts = new Map();
   let operatingRows = 0;
   const rows = [];
-  const headerAliases = {
-    timestamp: ["测试时间", "Timestamp", "时间"],
-    target: ["电流设定值（A）", "目标电流", "FC_SysLoadCurr"],
-    actual: ["实际电流（A）", "FC_CurrOut", "电堆电流"],
-    avgCell: ["平均电压（V）", "FC_AvgCellVoltage", "平均单体电压"],
-    minCell: ["最小电压（V）", "FC_MinCellVoltage", "最小单体电压"],
-    range: ["极差（mV）", "FC_AvgCellVoltDev", "离均差"],
-    pieceCount: ["片数", "单片数量"]
+  const findIndex = (key, names) => {
+    const configured = config.fieldMappings?.[key];
+    if (configured && headers.includes(configured)) return headers.indexOf(configured);
+    return names.map((name) => headers.indexOf(name)).find((column) => column >= 0) ?? -1;
   };
 
-  const findIndex = (names) => names.map((n) => headers.indexOf(n)).find((n) => n >= 0) ?? -1;
-
-  parseCsv(text, (row, rowIndex) => {
+  await parseCsv(source, (row, rowIndex) => {
     if (rowIndex === 0) {
       headers = row.map((h) => h.replace(/^\ufeff/, "").trim());
       nonEmpty.push(...headers.map(() => 0));
-      Object.entries(headerAliases).forEach(([key, names]) => { idx[key] = findIndex(names); });
-      idx.cells = headers.map((h, i) => /^单片电压\d+（V）$/.test(h) ? i : -1).filter((i) => i >= 0);
-      idx.cells.forEach(() => cellStats.push({ sum: 0, count: 0, min: Infinity, max: -Infinity }));
-      idx.signals = {
-        currentDensity: headers.indexOf("电流密度（mA/cm2）"), stackVoltage: headers.indexOf("总电压（V）"), power: headers.indexOf("功率（kW)"),
-        maxCell: headers.indexOf("最大电压（V）"), cellStd: headers.indexOf("标准差（mV）"),
-        h2Flow: headers.indexOf("阳极流量（SLPM）"), h2Pressure: headers.indexOf("阳极入堆压力（kPa）"), h2OutPressure: headers.indexOf("阳极出堆压力（kPa）"), h2Temperature: headers.indexOf("阳极入堆温度（℃）"), h2Dewpoint: headers.indexOf("阳极增湿罐水温度（℃）"),
-        airFlow: headers.indexOf("阴极流量（SLPM）"), airPressure: headers.indexOf("阴极入堆压力（kPa）"), airOutPressure: headers.indexOf("阴极出堆压力（kPa）"), airTemperature: headers.indexOf("阴极入堆温度（℃）"), airDewpoint: headers.indexOf("阴极增湿罐水温度（℃）"),
-        coolantFlow: headers.indexOf("循环水流量（L/min）"), coolantPressure: headers.indexOf("循环水入堆压力（kPa）"), coolantOutPressure: headers.indexOf("循环水出堆压力（kPa）"), coolantInTemperature: headers.indexOf("循环水入堆温度（℃）"), coolantOutTemperature: headers.indexOf("循环水出堆温度（℃）")
-      };
+      Object.entries(FIELD_ALIASES).forEach(([key, names]) => { idx[key] = findIndex(key, names); });
+      idx.cells = headers.map((header, column) => {
+        const match = header.match(/^(?:单片电压|cell(?:voltage)?)[_#\s-]*(\d+)(?:（v）|\(v\)|_v)?$/i);
+        return match ? { column, channel: Number(match[1]) } : null;
+      }).filter(Boolean).sort((a, b) => a.channel - b.channel);
+      idx.cells.forEach(({ channel }) => cellStats.push({ channel, sum: 0, count: 0, eligible: 0, min: Infinity, max: -Infinity }));
+      idx.signals = Object.fromEntries(Object.entries(SIGNAL_FIELDS).map(([key, fallback]) => [key, findIndex(key, [fallback])]));
       if (idx.target < 0 || idx.actual < 0) throw new Error("无法识别目标电流或实测电流字段，请在字段映射中确认原始表头。");
       return;
     }
@@ -99,10 +171,13 @@ function analyzeCsv(text, fileName, fileSize, sha256, config) {
     if (Number.isFinite(pieceCount)) pieceCounts.set(pieceCount, (pieceCounts.get(pieceCount) || 0) + 1);
     if (target > 0) {
       operatingRows += 1;
-      idx.cells.forEach((column, cellIndex) => {
-        const value = toNumber(row[column]);
+      idx.cells.forEach(({ column, channel }, cellIndex) => {
+        const stat = cellStats[cellIndex];
+        const eligible = Number.isFinite(pieceCount) ? channel <= pieceCount : (row[column] ?? "").trim() !== "";
+        if (eligible) stat.eligible += 1;
+        const value = eligible ? toNumber(row[column]) : NaN;
         if (Number.isFinite(value)) {
-          const stat = cellStats[cellIndex]; stat.sum += value; stat.count += 1; stat.min = Math.min(stat.min, value); stat.max = Math.max(stat.max, value);
+          stat.sum += value; stat.count += 1; stat.min = Math.min(stat.min, value); stat.max = Math.max(stat.max, value);
         }
       });
     }
@@ -116,7 +191,8 @@ function analyzeCsv(text, fileName, fileSize, sha256, config) {
     });
   });
 
-  self.postMessage({ type: "progress", value: 95 });
+  const effectiveSha256 = sha256 || await digestFile(source);
+  self.postMessage({ type: "progress", value: 90 });
   const tolerance = Number(config.currentTolerance) || 1;
   const minSamples = Number(config.minSamples) || 60;
   const windowSamples = Number(config.windowSamples) || 120;
@@ -177,7 +253,7 @@ function analyzeCsv(text, fileName, fileSize, sha256, config) {
   const bestByTarget = new Map();
   platforms.forEach((p) => { const old = bestByTarget.get(p.targetCurrent); if (!old || p.sampleCount > old.sampleCount) bestByTarget.set(p.targetCurrent, p); });
   const polarization = [...bestByTarget.values()].filter((p) => Number.isFinite(p.avgCellVoltage)).sort((a, b) => a.targetCurrent - b.targetCurrent).map((p) => ({ x: Number.isFinite(p.currentDensity) ? p.currentDensity : p.targetCurrent, current: p.actualCurrent, targetCurrent: p.targetCurrent, y: p.avgCellVoltage, minCellVoltage: p.minCellVoltage, cellStd: p.cellStd, samples: p.sampleCount, platformId: p.id, status: p.status }));
-  const cells = cellStats.map((s, i) => ({ channel: i + 1, mean: s.count ? s.sum / s.count : null, min: s.count ? s.min : null, max: s.count ? s.max : null, count: s.count, completeness: operatingRows ? s.count / operatingRows : 0 })).filter((s) => s.count > 0);
+  const cells = cellStats.map((s) => ({ channel: s.channel, mean: s.count ? s.sum / s.count : null, min: s.count ? s.min : null, max: s.count ? s.max : null, count: s.count, eligibleCount: s.eligible, completeness: s.eligible ? s.count / s.eligible : 0 })).filter((s) => s.count > 0);
   const meanCell = cells.filter((c) => c.completeness > .8).reduce((a, c) => a + c.mean, 0) / Math.max(1, cells.filter((c) => c.completeness > .8).length);
   cells.forEach((c) => { c.deviation = c.mean - meanCell; c.flag = "仅排序"; });
   [...cells].sort((a,b)=>a.deviation-b.deviation).forEach((c,index)=>{ c.rank=index+1; });
@@ -187,17 +263,25 @@ function analyzeCsv(text, fileName, fileSize, sha256, config) {
   const issues = [];
   if (duplicateRows > 0) issues.push({ severity: "warning", category: "时间质量", title: "源时间戳精度不足", detail: `${duplicateRows.toLocaleString()} 行处于重复分钟时间戳中，持续时间按采样周期换算。`, evidence: `${timestampCounts.size.toLocaleString()} 个分钟时间戳 / ${rowCount.toLocaleString()} 行`, action: "保留样本数、换算时长与原始行号" });
   if (over90Missing > 0) issues.push({ severity: "info", category: "字段完整性", title: "存在未启用或高缺失率列", detail: `${over90Missing} 个字段缺失率超过 90%，原始列保留且不参与无依据计算。`, evidence: "未执行静默删除", action: "仅统计已映射且有有效值的信号" });
-  if (dynamicPieces) issues.push({ severity: "info", category: "结构校核", title: "电堆片数随测试阶段变化", detail: `检测到 ${[...pieceCounts.keys()].sort((a,b)=>a-b).join(" / ")} 片配置，通道统计按行实际片数处理。`, evidence: [...pieceCounts.entries()].map(([k,v]) => `${k}片 ${v.toLocaleString()}行`).join("；"), action: "不将未配置通道判定为低电压" });
+  if (dynamicPieces) issues.push({ severity: "info", category: "结构校核", title: "电堆片数随测试阶段变化", detail: `检测到 ${[...pieceCounts.keys()].sort((a,b)=>a-b).join(" / ")} 片配置，任意编号单片通道均按行实际片数处理。`, evidence: [...pieceCounts.entries()].map(([k,v]) => `${k}片 ${v.toLocaleString()}行`).join("；"), action: "不将未配置通道判定为低电压" });
+  if (!effectiveSha256) issues.push({ severity: "info", category: "文件追溯", title: "超大文件未在浏览器生成 SHA-256", detail: "文件仍采用分块解析；为避免 WebCrypto 整体缓冲造成内存峰值，本机报告记录文件名和字节数。", evidence: `${fileSize.toLocaleString()} bytes`, action: "如需归档级校验，可在服务端或数据湖生成哈希" });
   issues.push({ severity: "warning", category: "目标工况", title: "未提供独立目标工况设定表", detail: "本批次仅进行相对稳定性与实际工况分析，不输出目标符合性结论。", evidence: "符合企业任务说明书的无设定表处理规则", action: "目标工况对比保持未判定" });
   const critical = issues.filter((i) => i.severity === "error").length;
   const warning = issues.filter((i) => i.severity === "warning").length;
   const mappingSpecs = [
-    ["目标电流","电流设定值（A）","A","A","原值"],["实测电流","实际电流（A）","A","A","原值"],["实测电流密度","电流密度（mA/cm2）","mA/cm²","A/cm²","×0.001"],
-    ["氢气流量","阳极流量（SLPM）","SLPM","SLPM","原值"],["氢气入口压力","阳极入堆压力（kPa）","kPa","kPa.g","原值"],["氢气入口温度","阳极入堆温度（℃）","℃","℃","原值"],["氢气入口露点","阳极增湿罐水温度（℃）","℃","℃","原值"],
-    ["空气流量","阴极流量（SLPM）","SLPM","SLPM","原值"],["空气入口压力","阴极入堆压力（kPa）","kPa","kPa.g","原值"],["空气入口温度","阴极入堆温度（℃）","℃","℃","原值"],["空气入口露点","阴极增湿罐水温度（℃）","℃","℃","原值"],
-    ["冷却液入口温度","循环水入堆温度（℃）","℃","℃","原值"],["冷却液流量","循环水流量（L/min）","L/min","L/min","原值"],["电堆总电压","总电压（V）","V","V","原值"],["平均单片电压","平均电压（V）","V","V","原值"],["单片电压","单片电压1（V）…","V","V","动态通道"]
+    ["target","目标电流","A","A","原值"],["actual","实测电流","A","A","原值"],["currentDensity","实测电流密度","mA/cm²","A/cm²","×0.001"],
+    ["h2Flow","氢气流量","SLPM","SLPM","原值"],["h2Pressure","氢气入口压力","kPa","kPa.g","原值"],["h2Temperature","氢气入口温度","℃","℃","原值"],["h2Dewpoint","氢气入口露点","℃","℃","原值"],
+    ["airFlow","空气流量","SLPM","SLPM","原值"],["airPressure","空气入口压力","kPa","kPa.g","原值"],["airTemperature","空气入口温度","℃","℃","原值"],["airDewpoint","空气入口露点","℃","℃","原值"],
+    ["coolantInTemperature","冷却液入口温度","℃","℃","原值"],["coolantFlow","冷却液流量","L/min","L/min","原值"],["stackVoltage","电堆总电压","V","V","原值"],["avgCell","平均单片电压","V","V","原值"]
   ];
-  const fieldMappings = mappingSpecs.map(([standardField,sourceField,sourceUnit,outputUnit,conversion]) => { const column = sourceField.endsWith("…") ? idx.cells[0] : headers.indexOf(sourceField); const completeness = column >= 0 ? nonEmpty[column] / Math.max(1,rowCount) : 0; return { standardField, sourceField, sourceUnit, outputUnit, conversion, completeness, status: column >= 0 ? "已映射" : "缺失" }; });
+  const fieldMappings = mappingSpecs.map(([key,standardField,sourceUnit,outputUnit,conversion]) => {
+    const column = key in idx ? idx[key] : idx.signals[key];
+    const sourceField = column >= 0 ? headers[column] : "—";
+    const completeness = column >= 0 ? nonEmpty[column] / Math.max(1,rowCount) : 0;
+    return { standardField, sourceField, sourceUnit, outputUnit, conversion, completeness, status: column >= 0 ? "已映射" : "缺失" };
+  });
+  const firstCellColumn = idx.cells[0]?.column ?? -1;
+  fieldMappings.push({ standardField: "单片电压", sourceField: firstCellColumn >= 0 ? `${headers[firstCellColumn]} 等 ${idx.cells.length} 个动态通道` : "—", sourceUnit: "V", outputUnit: "V", conversion: "按通道编号与实际片数", completeness: firstCellColumn >= 0 ? nonEmpty[firstCellColumn] / Math.max(1,rowCount) : 0, status: firstCellColumn >= 0 ? "已映射" : "缺失" });
   fieldMappings.push({ standardField: "冷却液温差", sourceField: "循环水出堆温度 - 循环水入堆温度", sourceUnit: "℃", outputUnit: "℃", conversion: "公式计算", completeness: 1, status: "可计算" });
   fieldMappings.push({ standardField: "内阻", sourceField: "—", sourceUnit: "—", outputUnit: "mΩ", conversion: "未提供", completeness: 0, status: "缺失" });
   const mappingSummary = { direct: fieldMappings.filter((m)=>m.status==="已映射").length, derived: fieldMappings.filter((m)=>m.status==="可计算").length, missing: fieldMappings.filter((m)=>m.status==="缺失").length, total: fieldMappings.length };
@@ -231,15 +315,15 @@ function analyzeCsv(text, fileName, fileSize, sha256, config) {
     parameterTemplateVersion: "LOCAL-T02",
     generatedAt,
     dataset: { id: `LOCAL-${generatedAt.slice(0,10).replaceAll("-","")}`, name: fileName.replace(/\.csv$/i,""), organization: "本机导入", sourceType: "CSV 时序数据", reviewStatus: "本机分析" },
-    source: { fileName, fileSizeBytes: fileSize, fileSizeMB: +(fileSize / 1024 / 1024).toFixed(2), sha256, dataPolicy: "local-only" },
+    source: { fileName, fileSizeBytes: fileSize, fileSizeMB: +(fileSize / 1024 / 1024).toFixed(2), sha256: effectiveSha256, dataPolicy: "local-raw-data" },
     config: { ...config, currentTolerance: tolerance, minSamples, windowSamples },
     meta: { rowCount, columnCount: headers.length, timeMin: timeMin == null ? null : new Date(timeMin).toISOString(), timeMax: timeMax == null ? null : new Date(timeMax).toISOString(), uniqueTimestamps: timestampCounts.size, duplicateTimestampRows: duplicateRows, highMissingColumns: over90Missing, activeCellChannels: cells.length, reservedCellChannels: Math.max(0,idx.cells.length-cells.length), fieldMapping: mappingSummary },
     qualityGate: { status: critical ? "阻断" : warning ? "有条件通过" : "通过", code: critical ? "BLOCKED" : warning ? "CONDITIONAL_PASS" : "PASS", errors: critical, warnings: warning, notices: issues.filter((i)=>i.severity==="info").length, headline: critical ? "存在阻断问题" : "数据可用于性能与实际工况分析", description: "限制项与处理依据已写入报告；缺失结论保持未判定。" },
     trust: { score: null, headline: "数据质量闸门已完成", description: "限制项与处理依据已写入报告。" },
     issues, platforms, polarization, conditions, cells, pieceCounts: Object.fromEntries(pieceCounts), fieldMappings, fieldCompleteness: relevantFields, insights, anomalies,
     auditLog: [
-      {time:generatedAt,stage:"文件校验",detail:`SHA-256 ${sha256 || "未生成"}`,status:"完成"},
-      {time:generatedAt,stage:"字段映射",detail:`直接映射 ${mappingSummary.direct}，派生 ${mappingSummary.derived}，缺失 ${mappingSummary.missing}`,status:"完成"},
+      {time:generatedAt,stage:"文件校验",detail:`SHA-256 ${effectiveSha256 || "超大文件跳过浏览器哈希"}`,status:"完成"},
+      {time:generatedAt,stage:"字段映射",detail:`直接映射 ${mappingSummary.direct}，派生 ${mappingSummary.derived}，缺失 ${mappingSummary.missing}；人工覆盖 ${Object.keys(config.fieldMappings || {}).length} 项`,status:"完成"},
       {time:generatedAt,stage:"平台识别",detail:`识别 ${platforms.length} 个平台，重复电流点独立保留`,status:"完成"},
       {time:generatedAt,stage:"报告快照",detail:"StackPilot Engine 2.0.0-local",status:"完成"}
     ],

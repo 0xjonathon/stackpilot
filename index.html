@@ -24,7 +24,7 @@
           <button class="nav-item" data-view="report" aria-label="报告与审计"><i>⇩</i><span>报告与审计</span></button>
         </nav>
         <div class="sidebar-note"><div class="privacy-dot"></div><div><strong>本地计算</strong><small>原始数据不离开浏览器</small></div></div>
-        <div class="sidebar-footer">IGNITE 2026 · T02-03</div>
+        <div class="sidebar-footer">数据可信 · 结论可追溯</div>
       </aside>
 
       <main class="main">
@@ -32,6 +32,8 @@
           <div><div class="eyebrow">燃料电池电堆测试 · 数据分析与报告平台</div><h1 id="pageTitle">分析总览</h1></div>
           <div class="top-actions">
             <span class="engine-status"><i></i><span id="engineLabel">计算引擎就绪</span></span>
+            <button class="button ghost" id="aiConfigButton">AI 设置</button>
+            <button class="button ghost" id="mappingButton">字段映射</button>
             <button class="button ghost" id="configButton">分析参数</button>
             <button class="button primary" id="exportTopButton">导出正式报告</button>
           </div>
@@ -81,7 +83,18 @@
                 <div class="chart-wrap"><svg id="polarizationChart" viewBox="0 0 900 330" role="img" aria-label="极化性能曲线"></svg></div>
                 <div class="chart-caption" id="polarizationCaption">等待分析结果</div>
               </article>
-              <article class="panel insight-panel"><div class="panel-head"><div><span class="section-kicker">ANALYSIS FINDINGS</span><h2>分析结论</h2></div><span class="ai-chip">规则引擎</span></div><div id="insightList" class="insight-list"></div></article>
+              <article class="panel insight-panel agent-card">
+                <div class="panel-head">
+                  <div><span class="section-kicker">AI ANALYSIS</span><h2>AI 智能分析</h2></div>
+                  <span class="ai-chip local" id="agentStatus">待配置</span>
+                </div>
+                <div class="agent-contract"><span>分析模型</span><strong id="agentTemplate">燃料电池电堆分析</strong><small>基于已完成的计算结果生成研判</small></div>
+                <p class="agent-summary" id="agentSummary">正在整理可核验的分析证据…</p>
+                <div id="insightList" class="insight-list"></div>
+                <div class="agent-actions"><button class="button secondary" id="runAgentButton">生成 AI 分析</button><button class="text-button" id="agentDetailButton">数据边界</button></div>
+                <form class="agent-question" id="agentQuestionForm"><label for="agentQuestion">向本批次提问</label><div><input id="agentQuestion" maxlength="600" placeholder="例如：优先复核哪些平台，为什么？" /><button type="submit" aria-label="发送问题">↑</button></div></form>
+                <div class="agent-answer" id="agentAnswer" hidden></div>
+              </article>
               <article class="panel span-2">
                 <div class="panel-head"><div><span class="section-kicker">CURRENT PLATFORMS</span><h2>可复核电流平台</h2></div><button class="text-button" data-goto="platforms">查看全部 →</button></div>
                 <div class="table-wrap compact"><table><thead><tr><th>平台</th><th>样本</th><th>持续时间</th><th>实测电流</th><th>平均单片</th><th>电压极差</th><th>曲线状态</th></tr></thead><tbody id="overviewPlatformRows"></tbody></table></div>
@@ -91,7 +104,8 @@
           </div>
 
           <div class="view" id="view-quality">
-            <section class="section-intro"><div><span class="section-kicker">QUALITY & FIELD CONTRACT</span><h2>质量闸门与字段映射</h2><p>每一项限制都记录证据与处理动作；跨测试台字段统一到企业标准字段。</p></div><span class="pill" id="qualityGateStatus">检查中</span></section>
+            <section class="section-intro"><div><span class="section-kicker">DATA QUALITY</span><h2>质量闸门与字段映射</h2><p>集中查看数据限制、处理动作与字段口径。</p></div><div class="section-actions"><span class="pill" id="qualityGateStatus">检查中</span><button class="button ai-small" data-ai-target="qualityAiResult" data-ai-question="分析数据质量、缺失字段和映射风险，按影响给出复核优先级。">AI 解读</button></div></section>
+            <article class="panel section-ai-panel" id="qualityAiResult" hidden></article>
             <section class="quality-grid" id="qualityCards"></section>
             <article class="panel mapping-panel">
               <div class="panel-head"><div><h2>标准字段映射</h2><p id="mappingSummary">等待映射结果</p></div><span class="pill neutral" id="mappingPill">—</span></div>
@@ -101,25 +115,29 @@
           </div>
 
           <div class="view" id="view-platforms">
-            <section class="section-intro"><div><span class="section-kicker">PLATFORM DETECTION</span><h2>电流平台与统计区间</h2><p>重复电流点分别识别，保留平台序号、原始行号、起止时间与截取样本。</p></div><span class="pill neutral" id="platformRulePill">—</span></section>
+            <section class="section-intro"><div><span class="section-kicker">CURRENT PLATFORMS</span><h2>电流平台与统计区间</h2><p>查看平台识别结果、统计窗口与曲线状态。</p></div><div class="section-actions"><span class="pill neutral" id="platformRulePill">—</span><button class="button ai-small" data-ai-target="platformAiResult" data-ai-question="分析电流平台与极化曲线，识别趋势、重复点差异和最值得复核的平台。">AI 解读</button></div></section>
+            <article class="panel section-ai-panel" id="platformAiResult" hidden></article>
             <article class="panel"><div class="table-wrap"><table><thead><tr><th>平台</th><th>目标电流</th><th>重复序号</th><th>原始行号</th><th>样本数</th><th>持续时间</th><th>统计窗口</th><th>实测均值</th><th>平均单片</th><th>最低单片</th><th>曲线状态</th><th>符合性</th></tr></thead><tbody id="allPlatformRows"></tbody></table></div></article>
             <div class="boundary-note"><strong>结论边界</strong><span>“电流平台”表示电流满足连续性规则；在未提供独立目标工况表时，目标工况符合性保持“未判定”。</span></div>
           </div>
 
           <div class="view" id="view-conditions">
-            <section class="section-intro"><div><span class="section-kicker">OPERATING CONDITIONS</span><h2>实际工况汇总</h2><p>阳极、阴极与冷却回路指标均来自各平台末端统计窗口，流阻与温差按企业公式计算。</p></div><span class="pill neutral">压力：kPa.g</span></section>
+            <section class="section-intro"><div><span class="section-kicker">OPERATING CONDITIONS</span><h2>实际工况汇总</h2><p>查看各平台阳极、阴极与冷却回路的实际表现。</p></div><div class="section-actions"><span class="pill neutral">压力：kPa.g</span><button class="button ai-small" data-ai-target="conditionAiResult" data-ai-question="关联分析阳极、阴极和冷却回路的工况范围，指出异常变化和建议复核项。">AI 解读</button></div></section>
+            <article class="panel section-ai-panel" id="conditionAiResult" hidden></article>
             <section class="condition-kpis" id="conditionKpis"></section>
             <article class="panel"><div class="panel-head"><div><h2>平台工况矩阵</h2><p>可横向滚动查看全部指标；目标工况对比在设定表缺失时不生成结论。</p></div></div><div class="table-wrap"><table><thead><tr><th>平台</th><th>实测电流</th><th>氢气计量比</th><th>氢气流量</th><th>氢气入口压力</th><th>氢气入口温度</th><th>氢气露点</th><th>空气计量比</th><th>空气流量</th><th>空气入口压力</th><th>空气入口温度</th><th>空气露点</th><th>冷却液流量</th><th>冷却液入口温度</th><th>冷却液温差</th><th>阳极流阻</th><th>阴极流阻</th><th>冷却流阻</th><th>目标符合性</th></tr></thead><tbody id="conditionRows"></tbody></table></div></article>
           </div>
 
           <div class="view" id="view-cells">
-            <section class="section-intro"><div><span class="section-kicker">CELL CONSISTENCY</span><h2>单片电压一致性</h2><p id="cellPageDescription">按每行实际片数校核通道，不把未配置通道误判为低电压。</p></div><span class="pill neutral" id="cellChannelPill">—</span></section>
+            <section class="section-intro"><div><span class="section-kicker">CELL CONSISTENCY</span><h2>单片电压一致性</h2><p id="cellPageDescription">正在汇总有效单片通道。</p></div><div class="section-actions"><span class="pill neutral" id="cellChannelPill">—</span><button class="button ai-small" data-ai-target="cellAiResult" data-ai-question="分析单片电压一致性，结合均值、离均差和完整率给出复核顺序，不作无阈值故障判定。">AI 解读</button></div></section>
+            <article class="panel section-ai-panel" id="cellAiResult" hidden></article>
             <article class="panel"><div class="panel-head"><div><h2>通道均值与相对离均差</h2><p>仅统计加载工况；异常阈值未配置时只排序，不自动判定故障。</p></div></div><div class="cell-large" id="cellLargeChart"></div></article>
             <section class="dashboard-grid two"><article class="panel"><h2>离均差排序</h2><div id="cellAnomalies" class="anomaly-list"></div></article><article class="panel"><h2>判读原则</h2><div class="principle-list"><p><b>01</b> 片数变化时仅比较当行实际存在的通道。</p><p><b>02</b> 完整率以“该通道应存在的行”为分母。</p><p><b>03</b> 未配置低压与持续时间阈值时不输出故障结论。</p></div></article></section>
           </div>
 
           <div class="view" id="view-report">
-            <section class="report-hero"><span class="section-kicker">TRACEABLE REPORT</span><h2>生成可复核的正式分析报告</h2><p>工作簿结构与企业任务说明书一致，包含 14 张工作表、极化曲线、字段映射、实际工况、异常清单和完整处理日志。</p><div class="report-actions"><button class="button primary large" id="exportXlsxButton">导出 XLSX 报告</button><button class="button secondary large" id="exportJsonButton">导出审计 JSON</button></div></section>
+            <section class="report-hero"><span class="section-kicker">REPORT</span><h2>导出可复核的分析报告</h2><p>包含分析结果、字段映射、实际工况、异常清单和处理记录。</p><div class="report-actions"><button class="button primary large" id="exportXlsxButton">导出 XLSX 报告</button><button class="button secondary large" id="exportJsonButton">导出审计 JSON</button><button class="button ghost large" data-ai-target="reportAiResult" data-ai-question="生成面向报告使用者的管理摘要，突出关键发现、风险边界和下一步行动。">生成 AI 摘要</button></div></section>
+            <article class="panel section-ai-panel" id="reportAiResult" hidden></article>
             <section class="report-sheets" id="reportSheets"></section>
             <article class="panel audit-panel"><div class="panel-head"><div><span class="section-kicker">AUDIT TRAIL</span><h2>处理与版本记录</h2><p>能够还原本次文件、映射、参数、平台识别和报告快照。</p></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>处理阶段</th><th>记录</th><th>状态</th></tr></thead><tbody id="auditRows"></tbody></table></div></article>
           </div>
@@ -131,13 +149,44 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="configTitle">
         <div class="modal-head"><div><span class="section-kicker">ANALYSIS CONTRACT</span><h2 id="configTitle">分析参数模板</h2></div><button class="icon-button" id="closeConfigButton" aria-label="关闭">×</button></div>
         <div class="config-grid">
+          <label>分析模板<select id="knowledgeTemplate"><option value="enterprise-t02">燃料电池电堆分析</option><option value="exploratory">探索性极化分析</option></select></label>
           <label>电流允许偏差（A）<input id="currentTolerance" type="number" min="0.1" step="0.1" value="1" /></label><label>平台最短持续样本<input id="minSamples" type="number" min="10" step="10" value="60" /></label>
           <label>默认统计窗口<input id="windowSamples" type="number" min="10" step="10" value="120" /></label><label>采样周期（秒）<input id="sampleInterval" type="number" min="0.1" step="0.1" value="1" /></label>
           <label>压力稳定范围（±kPa）<input id="pressureTolerance" type="number" min="0.1" step="0.1" value="1" /></label><label>温度稳定范围（±℃）<input id="temperatureTolerance" type="number" min="0.1" step="0.1" value="1" /></label>
           <label>露点稳定范围（±℃）<input id="dewpointTolerance" type="number" min="0.1" step="0.1" value="1" /></label><label>缺失字段策略<select id="missingPolicy"><option value="strict">严格模式</option><option value="lenient">宽松模式</option></select></label>
         </div>
-        <div class="config-note">参数值不写入算法常量。基准批次展示已审定快照；修改后的模板用于下一次导入分析，并写入报告“本次使用参数”与处理日志。</div>
+        <div class="config-note">保存后应用于下一次导入分析，并写入报告参数与处理记录。</div>
         <div class="modal-actions"><button class="button ghost" id="resetConfigButton">恢复企业默认值</button><button class="button primary" id="applyConfigButton">保存参数模板</button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="mappingModal" aria-hidden="true">
+      <div class="modal mapping-modal" role="dialog" aria-modal="true" aria-labelledby="mappingTitle">
+        <div class="modal-head"><div><span class="section-kicker">CONFIGURABLE FIELD CONTRACT</span><h2 id="mappingTitle">字段映射配置</h2><p id="mappingModalDescription">导入 CSV 后可将原始列映射到企业标准字段。</p></div><button class="icon-button" id="closeMappingButton" aria-label="关闭">×</button></div>
+        <div class="mapping-toolbar"><div><span>映射模板</span><strong>燃料电池电堆标准字段</strong></div><span class="pill neutral" id="mappingModalStatus">等待数据源</span></div>
+        <div class="table-wrap mapping-editor"><table><thead><tr><th>标准字段</th><th>必要性</th><th>原始 CSV 列</th><th>单位口径</th></tr></thead><tbody id="mappingEditorRows"></tbody></table></div>
+        <div class="config-note">人工调整会用于本次重跑，并写入报告字段映射。</div>
+        <div class="modal-actions"><button class="button ghost" id="autoMappingButton">重新自动匹配</button><button class="button primary" id="saveMappingButton">保存映射并重跑</button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="aiConfigModal" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aiConfigTitle">
+        <div class="modal-head"><div><span class="section-kicker">AI CONNECTION</span><h2 id="aiConfigTitle">AI 接口设置</h2></div><button class="icon-button" id="closeAiConfigButton" aria-label="关闭">×</button></div>
+        <div class="config-grid ai-config-grid">
+          <label class="span-full">接口地址<input id="llmBaseUrl" type="url" autocomplete="url" placeholder="https://api.openai.com/v1" /></label>
+          <label>模型<input id="llmModel" autocomplete="off" placeholder="gpt-5-mini" /></label>
+          <label>API Key<input id="llmApiKey" type="password" autocomplete="off" placeholder="输入 API Key" /></label>
+        </div>
+        <div class="config-note secure-note">支持 OpenAI 兼容的 Chat Completions 接口。Key 仅保留在当前浏览器会话中，不写入报告或服务端存储。</div>
+        <div class="modal-actions"><button class="button ghost" id="clearAiConfigButton">清除配置</button><button class="button primary" id="saveAiConfigButton">保存并启用</button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="agentBoundaryModal" aria-hidden="true">
+      <div class="modal boundary-modal" role="dialog" aria-modal="true" aria-labelledby="agentBoundaryTitle">
+        <div class="modal-head"><div><span class="section-kicker">DATA BOUNDARY</span><h2 id="agentBoundaryTitle">AI 数据边界</h2></div><button class="icon-button" id="closeAgentBoundaryButton" aria-label="关闭">×</button></div>
+        <div class="principle-list agent-principles"><p><b>01</b> 原始 CSV 仅在浏览器本地解析，不发送给 AI。</p><p><b>02</b> AI 只接收计算后的摘要数据。</p><p><b>03</b> 缺少阈值或目标值时，不生成故障或合格结论。</p></div>
       </div>
     </div>
 

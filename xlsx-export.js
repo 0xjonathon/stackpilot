@@ -87,6 +87,18 @@
       ["13_图表", [["实际电流密度A/cm²","平均单片电压V","平台编号","状态"], ...(result.polarization || []).map((p)=>[number(p.x,6),number(p.y,6),p.platformId,p.status])]],
       ["14_处理日志", [["时间","处理阶段","记录","状态"], ...(result.auditLog || []).map((log)=>[log.time,log.stage,log.detail,log.status])]]
     ];
+    const aiEntries = Object.entries(result.aiAnalyses || {});
+    if (aiEntries.length) {
+      const sectionNames = { qualityAiResult: "数据质量", platformAiResult: "电流平台", conditionAiResult: "实际工况", cellAiResult: "单片一致性", reportAiResult: "报告摘要" };
+      const rows = [["分析范围","内容类型","标题","证据/内容","建议"]];
+      aiEntries.forEach(([key, analysis]) => {
+        const section = sectionNames[key] || key;
+        rows.push([section,"摘要",analysis.summary || "",analysis.answer || "",""]);
+        (analysis.findings || []).forEach((item) => rows.push([section,item.severity || "发现",item.title,item.evidence,item.recommendation]));
+        (analysis.limitations || []).forEach((item) => rows.push([section,"分析边界","",item,""]));
+      });
+      sheets.push(["15_AI分析", rows]);
+    }
     return sheets;
   }
 

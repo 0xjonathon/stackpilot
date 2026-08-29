@@ -1,6 +1,6 @@
 # StackPilot 堆智检
 
-燃料电池电堆测试数据分析与标准化报告平台，面向浦发·IGNITE 未来能源黑客松 T02-03 企业命题。
+燃料电池电堆测试数据分析与标准化报告平台。
 
 在线系统：[https://stackpilot-xi.vercel.app](https://stackpilot-xi.vercel.app)
 
@@ -12,6 +12,18 @@
 - 生成极化性能、阳极/阴极/冷却回路实际工况、流阻和单片一致性统计。
 - 在输入资料不足时明确输出“未判定”，不补造目标工况或内阻数据。
 - 导出符合企业任务说明书结构的 14 工作表 XLSX 报告及审计 JSON。
+- 通过用户自有的 OpenAI 兼容接口生成质量、平台、工况和单片一致性分析。
+
+## AI 接口
+
+在产品内打开“AI 设置”，填写 Chat Completions 兼容接口地址、模型和 API Key。Key 仅保留在当前浏览器会话，并随单次分析请求发送到本应用的代理接口；原始 CSV 不会发送给 LLM。
+
+服务端也可以提供统一配置：
+
+- `LLM_BASE_URL`：接口根地址，默认为 `https://api.openai.com/v1`
+- `LLM_API_KEY`：API Key（兼容 `OPENAI_API_KEY`）
+- `LLM_MODEL`：模型名称（兼容 `OPENAI_MODEL`）
+- `ALLOW_PRIVATE_LLM=true`：允许连接局域网或本机模型服务；使用 `serve.py` 本地启动时已默认启用
 
 ## 基准批次
 
@@ -55,4 +67,4 @@ python3 tools/build_reference_analysis.py "/absolute/path/to/02 样例数据-青
 - `reference-analysis.json`：企业原始数据的已校验派生分析快照
 - `tools/build_reference_analysis.py`：可复现的基准分析构建程序
 
-企业资料仅用于本次赛事的学习、开发、演示与评审。公开部署不包含原始时序数据。
+公开部署不包含原始时序数据。
